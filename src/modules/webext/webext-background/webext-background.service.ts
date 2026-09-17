@@ -491,7 +491,7 @@ export class WebExtBackgroundService {
       return this.$q.reject(new Error('File contents parameter missing.'));
     }
 
-    return new this.$q<string | void>((resolve, reject) => {
+    return this.$q<string | void>((resolve, reject) => {
       // Use create a new object url using contents and trigger download
       const file = new Blob([textContents], { type: 'text/plain' });
       const url = URL.createObjectURL(file);

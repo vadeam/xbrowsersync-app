@@ -16,7 +16,7 @@ export class SyncEnabledController {
     });
 
     // Check if the current sync has been removed before showing page content
-    $q.race([syncService.checkSyncExists(), new $q((resolve) => $timeout(() => resolve(true), 1e3))])
+    $q.race([syncService.checkSyncExists(), $q((resolve) => $timeout(() => resolve(true), 1e3))])
       .then((syncExists) => {
         if (!syncExists) {
           $location.path(RoutePath.SyncRemoved);

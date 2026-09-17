@@ -16,13 +16,16 @@ interface Deferred<T> {
 }
 
 const $qFactory = (): ng.IQService => {
-  const $q: any = <T>(
+  // NOTE: declared as a regular function (not an arrow) so legacy `new $q(...)`
+  // call sites keep working — a constructor returning an object yields that object
+  function $q<T>(
     resolver: (resolve: (value?: T | PromiseLike<T>) => void, reject: (reason?: any) => void) => void
-  ): Promise<T> => {
+  ): Promise<T> {
     return new Promise<T>(resolver);
-  };
+  }
+  const $qAny = $q as any;
 
-  $q.defer = <T>(): Deferred<T> => {
+  $qAny.defer = <T>(): Deferred<T> => {
     let resolve: any;
     let reject: any;
     const promise = new Promise<T>((res, rej) => {
@@ -32,10 +35,10 @@ const $qFactory = (): ng.IQService => {
     return { promise, resolve, reject };
   };
 
-  $q.resolve = <T>(value?: T | PromiseLike<T>): Promise<T> => Promise.resolve(value);
-  $q.reject = (reason?: any): Promise<never> => Promise.reject(reason);
-  $q.when = <T>(value?: T | PromiseLike<T>): Promise<T> => Promise.resolve(value);
-  $q.all = (promises: any): Promise<any> => {
+  $qAny.resolve = <T>(value?: T | PromiseLike<T>): Promise<T> => Promise.resolve(value);
+  $qAny.reject = (reason?: any): Promise<never> => Promise.reject(reason);
+  $qAny.when = <T>(value?: T | PromiseLike<T>): Promise<T> => Promise.resolve(value);
+  $qAny.all = (promises: any): Promise<any> => {
     if (Array.isArray(promises)) {
       return Promise.all(promises);
     }
@@ -50,7 +53,7 @@ const $qFactory = (): ng.IQService => {
     });
   };
 
-  return $q as ng.IQService;
+  return $qAny as ng.IQService;
 };
 
 // --- $timeout shim: wraps setTimeout ---
