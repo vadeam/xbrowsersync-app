@@ -131,20 +131,21 @@ export const createBackgroundContainer = (config: BackgroundPlatformConfig): Bac
   // 12. V160UpgradeProviderService (platform-specific, depends on $q, BookmarkHelperService, BookmarkService, PlatformService, StoreService, UtilityService)
   // Defer creation until after BookmarkService and PlatformService are created
 
-  // 13. BookmarkService (platform-specific)
+  // 13. PlatformService (platform-specific, depends on $injector, $interval, $q, $timeout, AlertService, BookmarkHelperService, BookmarkIdMapperService, LogService, StoreService, UtilityService, WorkingService)
+  // NOTE: Must be created BEFORE BookmarkService — WebExtBookmarkService takes PlatformService positionally
+  const PlatformSvcClass = config.PlatformServiceClass as any;
+  const platformSvcInjectNames: string[] = PlatformSvcClass.$inject || [];
+  const platformSvcArgs = platformSvcInjectNames.map((name: string) => injector.get(name));
+  const platformSvc = new PlatformSvcClass(...platformSvcArgs);
+  injector.register('PlatformService', platformSvc);
+
+  // 14. BookmarkService (platform-specific)
   // The constructor signatures vary by platform, so we use $inject to determine args
   const BookmarkSvcClass = config.BookmarkServiceClass as any;
   const bookmarkSvcInjectNames: string[] = BookmarkSvcClass.$inject || [];
   const bookmarkSvcArgs = bookmarkSvcInjectNames.map((name: string) => injector.get(name));
   const bookmarkSvc = new BookmarkSvcClass(...bookmarkSvcArgs);
   injector.register('BookmarkService', bookmarkSvc);
-
-  // 14. PlatformService (platform-specific, depends on $injector, $interval, $q, $timeout, AlertService, BookmarkHelperService, BookmarkIdMapperService, LogService, StoreService, UtilityService, WorkingService)
-  const PlatformSvcClass = config.PlatformServiceClass as any;
-  const platformSvcInjectNames: string[] = PlatformSvcClass.$inject || [];
-  const platformSvcArgs = platformSvcInjectNames.map((name: string) => injector.get(name));
-  const platformSvc = new PlatformSvcClass(...platformSvcArgs);
-  injector.register('PlatformService', platformSvc);
 
   // 15. V160UpgradeProviderService (now that BookmarkService and PlatformService exist)
   const UpgradeProviderSvcClass = config.UpgradeProviderServiceClass as any;
