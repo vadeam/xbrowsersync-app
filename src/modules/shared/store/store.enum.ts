@@ -20,6 +20,7 @@ enum StoreKey {
   SyncBookmarksToolbar = 'syncBookmarksToolbar',
   SyncEnabled = 'syncEnabled',
   SyncInfo = 'syncInfo',
+  SyncQueue = 'syncQueue',
   TelemetryEnabled = 'telemetryEnabled',
   TraceLog = 'traceLog'
 }

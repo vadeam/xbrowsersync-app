@@ -61,28 +61,32 @@ module.exports = (env, argv) => {
         }
       ]
     },
-    optimization: !devMode
-      ? {
-          minimizer: [
-            new TerserPlugin({
-              parallel: true,
-              exclude: /node_modules\/which\/bin/,
-              terserOptions: {
-                keep_classnames: true
-              }
-            })
-          ],
-          splitChunks: {
-            cacheGroups: {
-              vendor: {
-                chunks: 'all',
-                name: 'vendor',
-                test: /node_modules/
-              }
-            }
+    optimization: {
+      // Vendor chunk is emitted in all modes so app.html script references
+      // always resolve (dev builds have no other code splitting)
+      splitChunks: {
+        cacheGroups: {
+          vendor: {
+            chunks: 'all',
+            name: 'vendor',
+            test: /node_modules/
           }
         }
-      : {},
+      },
+      ...(devMode
+        ? {}
+        : {
+            minimizer: [
+              new TerserPlugin({
+                parallel: true,
+                exclude: /node_modules\/which\/bin/,
+                terserOptions: {
+                  keep_classnames: true
+                }
+              })
+            ]
+          })
+    },
     output: {
       chunkFilename: '[name].js',
       clean: true,

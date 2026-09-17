@@ -210,6 +210,7 @@ export class SyncService {
         .then(() => {
           // Clear sync queue
           this.syncQueue = [];
+          this.persistSyncQueue();
 
           // Reset syncing flag
           this.showInterfaceAsSyncing();
@@ -266,6 +267,66 @@ export class SyncService {
     return this.syncQueue.length;
   }
 
+  persistSyncQueue(): ng.IPromise<void> {
+    // Best-effort persistence of the in-memory queue so unfinished syncs survive
+    // a background context restart (e.g. MV3 service worker eviction).
+    // Deferreds cannot be serialized and are recreated on restore.
+    return this.$q
+      .resolve()
+      .then(() =>
+        this.storeSvc.set(StoreKey.SyncQueue, {
+          current: this.serializeSync(this.currentSync),
+          queue: (this.syncQueue || []).map((sync) => this.serializeSync(sync))
+        })
+      )
+      .then(() => undefined)
+      .catch((err) => {
+        this.logSvc.logWarning(`Failed to persist sync queue: ${err?.message ?? err}`);
+      });
+  }
+
+  restoreSyncQueue(): ng.IPromise<boolean> {
+    // Restore persisted queue into an idle service only, to avoid duplicating in-flight work
+    if (this.currentSync || this.syncQueue.length > 0) {
+      return this.$q.resolve(false);
+    }
+    return this.storeSvc.get<{ current?: Sync; queue?: Sync[] }>(StoreKey.SyncQueue).then((persisted) => {
+      const restored: Sync[] = [];
+      if (persisted?.current) {
+        restored.push(persisted.current);
+      }
+      if (persisted?.queue) {
+        restored.push(...persisted.queue);
+      }
+      // Dedupe defensively by unique id
+      const seenUniqueIds = new Set<string>();
+      this.syncQueue = restored.filter((sync) => {
+        if (!sync || (sync.uniqueId && seenUniqueIds.has(sync.uniqueId))) {
+          return false;
+        }
+        if (sync.uniqueId) {
+          seenUniqueIds.add(sync.uniqueId);
+        }
+        // Recreate deferreds — processSyncQueue requires them on completion
+        sync.deferred = this.$q.defer<void>();
+        return true;
+      });
+      if (this.syncQueue.length > 0) {
+        this.logSvc.logInfo(`Restored ${this.syncQueue.length} queued sync(s) after restart`);
+        return true;
+      }
+      return false;
+    });
+  }
+
+  serializeSync(sync: Sync | undefined): Sync | undefined {
+    if (!sync) {
+      return undefined;
+    }
+    const { deferred, ...serializable } = sync;
+    return serializable;
+  }
+
   getSyncSize(): ng.IPromise<number> {
     return this.bookmarkHelperSvc
       .getCachedBookmarks()
@@ -285,6 +346,7 @@ export class SyncService {
         // If connection failed and sync is a change, swallow error and place failed sync back on the queue
         if (this.networkSvc.isNetworkConnectionError(err) && failedSync.type !== SyncType.Local) {
           this.syncQueue.unshift(failedSync);
+          this.persistSyncQueue();
           if (!isBackgroundSync) {
             this.logSvc.logWarning('No connection, changes re-queued for syncing');
           }
@@ -320,6 +382,7 @@ export class SyncService {
                 // If local changes made, clear sync queue and refresh sync data if necessary
                 if (failedSync.type !== SyncType.Local) {
                   this.syncQueue = [];
+                  this.persistSyncQueue();
                   if (this.checkIfRefreshSyncedDataOnError(syncError)) {
                     this.currentSync = undefined;
                     return this.platformSvc.queueLocalResync().catch((refreshErr) => {
@@ -372,7 +435,9 @@ export class SyncService {
       );
 
       // Enable syncing flag
-      return this.showInterfaceAsSyncing(this.currentSync.type)
+      // Persist queue state first so an evicted background context can resume afterwards
+      return this.persistSyncQueue()
+        .then(() => this.showInterfaceAsSyncing(this.currentSync.type))
         .then(() => {
           // Process here if this is a cancel
           if (this.currentSync.type === SyncType.Cancel) {
@@ -494,15 +559,16 @@ export class SyncService {
         })
         .catch((err) => this.handleFailedSync(this.currentSync, err, isBackgroundSync))
         .finally(() => {
-          // Clear current sync
+          // Clear current sync and persist the cleared state
           this.currentSync = undefined;
-
-          // Start auto updates if sync enabled
-          return this.utilitySvc.isSyncEnabled().then((cachedSyncEnabled) => {
-            if (cachedSyncEnabled) {
-              return this.platformSvc.startSyncUpdateChecks();
-            }
-          });
+          return this.persistSyncQueue().then(() =>
+            this.utilitySvc.isSyncEnabled().then((cachedSyncEnabled) => {
+              if (cachedSyncEnabled) {
+                return this.platformSvc.startSyncUpdateChecks();
+              }
+              return undefined;
+            })
+          );
         })
     );
   }
@@ -515,6 +581,7 @@ export class SyncService {
           // If new sync ensure sync queue is clear
           if (!syncEnabled) {
             this.syncQueue = [];
+            this.persistSyncQueue();
           }
 
           let queuedSync: ng.IDeferred<void>;
@@ -529,6 +596,7 @@ export class SyncService {
             syncToQueue.deferred = queuedSync;
             syncToQueue.uniqueId = syncToQueue.uniqueId ?? this.utilitySvc.getUniqueishId();
             this.syncQueue.push(syncToQueue);
+            this.persistSyncQueue();
             this.logSvc.logInfo(`Sync ${syncToQueue.uniqueId} (${syncToQueue.type}) queued`);
           }
 

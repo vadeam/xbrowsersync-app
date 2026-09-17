@@ -30,8 +30,18 @@ export const $q: ng.IQService = (() => {
   mock$q.apply = Promise.apply;
   mock$q.bind = Promise.bind;
   mock$q.call = Promise.call;
+  mock$q.defer = () => {
+    let resolve: any;
+    let reject: any;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
   mock$q.race = Promise.race;
   mock$q.reject = Promise.reject;
   mock$q.resolve = Promise.resolve;
+  mock$q.when = Promise.resolve;
   return mock$q as any;
 })();

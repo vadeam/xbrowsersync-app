@@ -102,6 +102,59 @@ describe('SyncService', () => {
     expect(syncSvc.getSyncQueueLength()).toBe(0);
   });
 
+  test('persistSyncQueue: Stores queue without deferreds', async () => {
+    syncSvc.currentSync = { type: 'local', uniqueId: 'a', deferred: { resolve: jest.fn() } } as any;
+    syncSvc.syncQueue = [{ type: 'remote', uniqueId: 'b', deferred: { resolve: jest.fn() } } as any];
+
+    await syncSvc.persistSyncQueue();
+
+    expect(mockStoreSvc.set).toBeCalledWith('syncQueue', {
+      current: { type: 'local', uniqueId: 'a' },
+      queue: [{ type: 'remote', uniqueId: 'b' }]
+    });
+  });
+
+  test('restoreSyncQueue: Restores persisted queue with fresh deferreds', async () => {
+    mockStoreSvc.get.mockResolvedValue({
+      current: { type: 'local', uniqueId: 'a' },
+      queue: [
+        { type: 'remote', uniqueId: 'b' },
+        { type: 'remote', uniqueId: 'b' }
+      ]
+    });
+
+    const restored = await syncSvc.restoreSyncQueue();
+
+    expect(restored).toBe(true);
+    expect(syncSvc.syncQueue).toHaveLength(2);
+    expect(syncSvc.syncQueue[0].deferred).toBeDefined();
+    expect(syncSvc.syncQueue[1].deferred).toBeDefined();
+    expect(mockLogSvc.logInfo).toBeCalled();
+  });
+
+  test('restoreSyncQueue: Returns false when service is busy', async () => {
+    syncSvc.currentSync = { type: 'local' } as any;
+
+    const restored = await syncSvc.restoreSyncQueue();
+
+    expect(restored).toBe(false);
+    expect(mockStoreSvc.get).not.toBeCalled();
+  });
+
+  test('restoreSyncQueue: Returns false when nothing persisted', async () => {
+    mockStoreSvc.get.mockResolvedValue(undefined);
+
+    const restored = await syncSvc.restoreSyncQueue();
+
+    expect(restored).toBe(false);
+    expect(syncSvc.syncQueue).toStrictEqual([]);
+  });
+
+  test('serializeSync: Strips deferred', () => {
+    expect(syncSvc.serializeSync({ type: 'x', deferred: {} } as any)).toStrictEqual({ type: 'x' });
+    expect(syncSvc.serializeSync(undefined)).toBeUndefined();
+  });
+
   // checkIfDisableSyncOnError tests
   test('checkIfDisableSyncOnError: Returns true for IncompleteSyncInfoError', () => {
     expect(syncSvc.checkIfDisableSyncOnError(new IncompleteSyncInfoError())).toBe(true);

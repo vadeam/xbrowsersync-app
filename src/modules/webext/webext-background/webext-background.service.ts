@@ -309,6 +309,15 @@ export class WebExtBackgroundService {
         })
         .then(() => {
           this.init();
+        })
+        // Resume queue persisted before a background context restart (e.g. MV3 worker eviction)
+        .then(() => this.utilitySvc.isSyncEnabled())
+        .then((syncEnabled) => (syncEnabled ? this.syncSvc.restoreSyncQueue() : false))
+        .then((restored) => {
+          if (restored) {
+            return this.syncSvc.processSyncQueue(true);
+          }
+          return undefined;
         });
     }
     return this.readyPromise;
