@@ -492,9 +492,10 @@ export class WebExtBackgroundService {
     }
 
     return this.$q<string | void>((resolve, reject) => {
-      // Use create a new object url using contents and trigger download
-      const file = new Blob([textContents], { type: 'text/plain' });
-      const url = URL.createObjectURL(file);
+      // Trigger download from a data URL: service workers have no URL.createObjectURL,
+      // and unlike blob URLs a data URL has no document lifetime dependency so it
+      // survives worker restarts while the save dialog is open
+      const url = `data:text/plain;charset=utf-8,${encodeURIComponent(textContents)}`;
       browser.downloads
         .download({
           filename,
@@ -505,7 +506,6 @@ export class WebExtBackgroundService {
           const onChangedHandler = (delta: Downloads.OnChangedDownloadDeltaType) => {
             switch (delta.state?.current) {
               case 'complete':
-                URL.revokeObjectURL(url);
                 browser.downloads.onChanged.removeListener(onChangedHandler);
                 this.getDownloadById(downloadId).then((download) => {
                   this.logSvc.logInfo(`Downloaded file ${download.filename}`);
@@ -513,7 +513,6 @@ export class WebExtBackgroundService {
                 });
                 break;
               case 'interrupted':
-                URL.revokeObjectURL(url);
                 browser.downloads.onChanged.removeListener(onChangedHandler);
                 if (delta.error?.current === 'USER_CANCELED') {
                   resolve();
