@@ -53,7 +53,8 @@ export abstract class WebExtBookmarkService implements BookmarkService {
   utilitySvc: UtilityService;
 
   nativeBookmarkEventsQueue: any[] = [];
-  processNativeBookmarkEventsTimeout: ng.IPromise<void>;
+  processingNativeBookmarkEvents = false;
+  nativeEventListenersRegistered = false;
   unsupportedContainers: string[] = [];
 
   static $inject = [
@@ -97,6 +98,23 @@ export abstract class WebExtBookmarkService implements BookmarkService {
       this._syncSvc = this.$injector.get('SyncService');
     }
     return this._syncSvc;
+  }
+
+  protected abstract addNativeEventListeners(): void;
+
+  registerNativeEventListeners(): void {
+    // Idempotent synchronous registration. Called at background startup (before any
+    // async init) so events that wake a suspended worker are never missed. Handlers
+    // drop events while sync is disabled (see queueNativeBookmarkEvent).
+    if (this.nativeEventListenersRegistered) {
+      return;
+    }
+    this.nativeEventListenersRegistered = true;
+    this.addNativeEventListeners();
+  }
+
+  protected markNativeEventListenersRemoved(): void {
+    this.nativeEventListenersRegistered = false;
   }
 
   addBookmark(bookmark: Bookmark, parentId: number, index: number, bookmarks: Bookmark[]): UpdateBookmarksResult {
@@ -881,6 +899,12 @@ export abstract class WebExtBookmarkService implements BookmarkService {
   }
 
   processNativeBookmarkEventsQueue(): void {
+    // Guard re-entrancy: an active drain picks up newly queued events via its condition
+    if (this.processingNativeBookmarkEvents) {
+      return;
+    }
+    this.processingNativeBookmarkEvents = true;
+
     const condition = (): ng.IPromise<boolean> => {
       return this.$q.resolve(this.nativeBookmarkEventsQueue.length > 0);
     };
@@ -905,16 +929,22 @@ export abstract class WebExtBookmarkService implements BookmarkService {
     };
 
     // Iterate through the queue and process the events
-    this.utilitySvc.asyncWhile<any>(this.nativeBookmarkEventsQueue, condition, action).then(() => {
-      this.$timeout(() => {
+    this.utilitySvc.asyncWhile<any>(this.nativeBookmarkEventsQueue, condition, action).then(
+      () => {
+        this.processingNativeBookmarkEvents = false;
+        // Execute queued syncs immediately — timers do not survive worker suspension
         this.syncSvc.executeSync().then(() => {
           // Move native unsupported containers into the correct order
           return this.disableEventListeners()
             .then(() => this.reorderUnsupportedContainers())
             .then(() => this.enableEventListeners());
         });
-      }, 100);
-    });
+      },
+      (err) => {
+        this.processingNativeBookmarkEvents = false;
+        throw err;
+      }
+    );
   }
 
   processNativeChangeOnBookmarks(changeInfo: BookmarkChange, bookmarks: Bookmark[]): ng.IPromise<Bookmark[]> {
@@ -944,17 +974,19 @@ export abstract class WebExtBookmarkService implements BookmarkService {
   }
 
   queueNativeBookmarkEvent(changeType: BookmarkChangeType, ...eventArgs: any[]): void {
-    // Clear timeout
-    if (this.processNativeBookmarkEventsTimeout) {
-      this.$timeout.cancel(this.processNativeBookmarkEventsTimeout);
-    }
-
-    // Add event to the queue and trigger processing after a delay
-    this.nativeBookmarkEventsQueue.push({
-      changeType,
-      eventArgs
+    // Listeners are registered unconditionally at startup (so wake-triggered events are
+    // captured) — drop events while sync is disabled and process the rest immediately:
+    // timers do not survive worker suspension, so no debouncing here.
+    this.utilitySvc.isSyncEnabled().then((syncEnabled) => {
+      if (!syncEnabled) {
+        return;
+      }
+      this.nativeBookmarkEventsQueue.push({
+        changeType,
+        eventArgs
+      });
+      this.processNativeBookmarkEventsQueue();
     });
-    this.processNativeBookmarkEventsTimeout = this.$timeout(() => this.processNativeBookmarkEventsQueue(), 200);
   }
 
   removeNativeBookmarks(id: string): ng.IPromise<void> {

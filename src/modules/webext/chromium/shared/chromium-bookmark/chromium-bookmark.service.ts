@@ -224,6 +224,14 @@ export class ChromiumBookmarkService extends WebExtBookmarkService {
     });
   }
 
+  protected addNativeEventListeners(): void {
+    browser.bookmarks.onCreated.addListener(this.onNativeBookmarkCreated);
+    browser.bookmarks.onRemoved.addListener(this.onNativeBookmarkRemoved);
+    browser.bookmarks.onChanged.addListener(this.onNativeBookmarkChanged);
+    (browser.bookmarks as any).onChildrenReordered.addListener(this.onNativeBookmarkChildrenReordered);
+    browser.bookmarks.onMoved.addListener(this.onNativeBookmarkMoved);
+  }
+
   disableEventListeners(): ng.IPromise<void> {
     return this.$q
       .all([
@@ -233,7 +241,9 @@ export class ChromiumBookmarkService extends WebExtBookmarkService {
         browser.bookmarks.onChanged.removeListener(this.onNativeBookmarkChanged),
         browser.bookmarks.onMoved.removeListener(this.onNativeBookmarkMoved)
       ])
-      .then(() => {})
+      .then(() => {
+        this.markNativeEventListenersRemoved();
+      })
       .catch((err) => {
         this.logSvc.logWarning('Failed to disable event listeners');
         throw new BaseError(undefined, err);
@@ -249,11 +259,7 @@ export class ChromiumBookmarkService extends WebExtBookmarkService {
         if (!syncEnabled) {
           return;
         }
-        browser.bookmarks.onCreated.addListener(this.onNativeBookmarkCreated);
-        browser.bookmarks.onRemoved.addListener(this.onNativeBookmarkRemoved);
-        browser.bookmarks.onChanged.addListener(this.onNativeBookmarkChanged);
-        (browser.bookmarks as any).onChildrenReordered.addListener(this.onNativeBookmarkChildrenReordered);
-        browser.bookmarks.onMoved.addListener(this.onNativeBookmarkMoved);
+        this.registerNativeEventListeners();
       })
       .catch((err) => {
         this.logSvc.logWarning('Failed to enable event listeners');

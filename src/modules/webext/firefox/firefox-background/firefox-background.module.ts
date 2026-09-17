@@ -24,5 +24,9 @@ const { backgroundSvc } = createBackgroundContainer({
   UpgradeProviderServiceClass: WebExtV160UpgradeProviderService
 });
 
+// Register native bookmark listeners synchronously so events that wake a suspended
+// worker are captured (handlers drop events while sync is disabled)
+backgroundSvc.bookmarkSvc.registerNativeEventListeners();
+
 // Register event handlers synchronously (required for MV3 background scripts)
 registerBackgroundStartup(backgroundSvc);
