@@ -429,10 +429,16 @@ export abstract class WebExtPlatformService implements PlatformService {
     }
 
     return promise.catch((err: Error) => {
-      // Recreate the error object as webextension-polyfill wraps the object before returning it
-      const error: BaseError = new (<any>Errors)[err.message]();
-      error.logged = true;
-      throw error;
+      // Recreate the error object as webextension-polyfill wraps the object before returning it.
+      // The background sets err.message to the error class name — but only rehydrate known
+      // error classes, otherwise the rehydration itself throws and masks the original error.
+      const ErrorClass = (Errors as any)?.[err?.message];
+      if (typeof ErrorClass === 'function') {
+        const error: BaseError = new ErrorClass();
+        error.logged = true;
+        throw error;
+      }
+      throw err;
     });
   }
 
