@@ -183,7 +183,18 @@ export class AppLoginComponent implements OnInit {
               .getPasswordHash(syncPassword, syncInfo.id)
               .then((passwordHash) => {
                 syncInfo.password = passwordHash;
-                return this.storeSvc.set(StoreKey.SyncInfo, syncInfo).then(() => this.platformSvc.queueSync(syncData));
+                return this.storeSvc.set(StoreKey.SyncInfo, syncInfo);
+              })
+              .then(() => this.storeSvc.get<string>(StoreKey.LastUpdated))
+              .then((lastUpdated) => {
+                if (lastUpdated) {
+                  return this.platformSvc.queueSync(syncData);
+                }
+                return this.utilitySvc
+                  .getApiService()
+                  .then((apiSvc) => apiSvc.getBookmarksLastUpdated(true))
+                  .then((res) => this.storeSvc.set(StoreKey.LastUpdated, res.lastUpdated))
+                  .then(() => this.platformSvc.queueSync(syncData));
               })
               .then(() => {
                 this.logSvc.logInfo(syncInfoMessage);
