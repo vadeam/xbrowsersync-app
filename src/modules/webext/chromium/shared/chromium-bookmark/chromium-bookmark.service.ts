@@ -427,6 +427,33 @@ export class ChromiumBookmarkService extends WebExtBookmarkService {
     return nativeBookmarks;
   }
 
+  findNativeContainer(
+    rootChildren: NativeBookmarks.BookmarkTreeNode[],
+    legacyId: string,
+    knownTitles: string[],
+    fallbackIndex: number
+  ): NativeBookmarks.BookmarkTreeNode | undefined {
+    // Native bookmark ids are not stable across profiles (fresh profiles use large ids,
+    // some Chromium variants differ entirely), so resolve in order of reliability:
+    // legacy hardcoded id first, then well-known titles, then canonical root order
+    // (bookmarks bar, other bookmarks, mobile) which Chromium preserves.
+    const byId = rootChildren.find((x) => x.id === legacyId);
+    if (byId) {
+      return byId;
+    }
+    const normalizedTitles = knownTitles.map((t) => t.toLowerCase());
+    const byTitle = rootChildren.find((x) => normalizedTitles.includes((x.title ?? '').toLowerCase()));
+    if (byTitle) {
+      this.logSvc.logInfo(`Resolved native container '${byTitle.title}' by title (id ${byTitle.id})`);
+      return byTitle;
+    }
+    const byOrder = rootChildren[fallbackIndex];
+    if (byOrder) {
+      this.logSvc.logInfo(`Resolved native container '${byOrder.title}' by root order (id ${byOrder.id})`);
+    }
+    return byOrder;
+  }
+
   getNativeContainerIds(): ng.IPromise<Map<BookmarkContainer, string>> {
     return this.utilitySvc
       .isSyncEnabled()
@@ -444,12 +471,19 @@ export class ChromiumBookmarkService extends WebExtBookmarkService {
         return browser.bookmarks.getTree().then((tree) => {
           // Get the root child nodes
           const [root] = tree;
-          const otherBookmarksNode = root.children.find((x) => {
-            return x.id === this.otherBookmarksNodeId;
-          });
-          const toolbarBookmarksNode = root.children.find((x) => {
-            return x.id === this.toolbarBookmarksNodeId;
-          });
+          const rootChildren = root.children ?? [];
+          const otherBookmarksNode = this.findNativeContainer(
+            rootChildren,
+            this.otherBookmarksNodeId,
+            ['other bookmarks', 'other'],
+            1
+          );
+          const toolbarBookmarksNode = this.findNativeContainer(
+            rootChildren,
+            this.toolbarBookmarksNodeId,
+            ['bookmarks bar', 'bookmarksbar'],
+            0
+          );
 
           // Throw an error if a native container node is not found
           if (!otherBookmarksNode || !toolbarBookmarksNode) {

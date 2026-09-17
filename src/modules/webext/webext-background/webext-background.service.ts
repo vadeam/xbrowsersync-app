@@ -204,19 +204,19 @@ export class WebExtBackgroundService {
       // Fallback for service worker context: strip tags with regex
       messageToDisplay = alert.message.replace(/<[^>]*>/g, '');
     }
-    const iconPath = `${Globals.PathToAssets}/notification.svg`;
-    // Display notification (icon resolves async with fallbacks — see getNotificationIconUrl)
-    this.getNotificationIconUrl(iconPath)
-      .then((iconUrl) => {
-        const options: Notifications.CreateNotificationOptions = {
-          iconUrl,
-          message: messageToDisplay,
-          title: alert.title,
-          type: 'basic'
-        };
-        return browser.notifications.create(this.utilitySvc.getUniqueishId(), options);
-      })
+    // Display notification. The icon uses a relative raster path as in MV2: absolute
+    // extension URLs fail to download from the SW image loader and data URLs are
+    // blocked by the extension CSP (connect-src), so this is the remaining option.
+    const options: Notifications.CreateNotificationOptions = {
+      iconUrl: `${Globals.PathToAssets}/icon128.png`,
+      message: messageToDisplay,
+      title: alert.title,
+      type: 'basic'
+    };
+    browser.notifications
+      .create(this.utilitySvc.getUniqueishId(), options)
       .then((notificationId) => {
+        this.logSvc.logInfo(`Displayed notification: ${alert.title}`);
         // Add a click handler to open url if provided or if the message contains a url
         const urlToOpenOnClick = urlInAlert ?? url;
         if (urlToOpenOnClick) {
@@ -232,25 +232,6 @@ export class WebExtBackgroundService {
       .catch((err) => {
         this.logSvc.logWarning(`Failed to display notification: ${err?.message ?? err}`);
       });
-  }
-
-  getNotificationIconUrl(iconPath: string): ng.IPromise<string> {
-    // Notification image loading is context-sensitive in MV3 (relative paths may
-    // resolve against the worker location, absolute extension URLs are rejected on
-    // some builds), so inline the icon as a data URL with a fallback cascade.
-    // Uses native promises to avoid digest dependency in any context.
-    const loadIcon = Promise.resolve()
-      .then(() => fetch(browser.runtime.getURL(iconPath)))
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        return response.text();
-      })
-      .then((svg) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`)
-      .catch(() => browser.runtime.getURL(iconPath))
-      .catch(() => iconPath);
-    return this.$q.resolve(loadIcon);
   }
 
   getDownloadById(id: number): ng.IPromise<Downloads.DownloadItem> {
