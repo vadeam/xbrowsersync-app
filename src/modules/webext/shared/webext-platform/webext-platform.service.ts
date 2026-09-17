@@ -329,36 +329,93 @@ export abstract class WebExtPlatformService implements PlatformService {
       newTitle += notSyncedTitle;
     }
 
-    return this.$q((resolve, reject) => {
+    const actionApi = browser.action || browser.browserAction;
+
+    // Interface updates must never fail a sync — log and continue on error
+    return this.$q((resolve) => {
       const iconUpdated = this.$q.defer<void>();
       const titleUpdated = this.$q.defer<void>();
 
-      (browser.action || browser.browserAction).getTitle({}).then((currentTitle) => {
-        // Don't do anything if browser action title hasn't changed
-        if (newTitle === currentTitle) {
-          return resolve();
-        }
+      actionApi
+        .getTitle({})
+        .then((currentTitle) => {
+          // Don't do anything if browser action title hasn't changed
+          if (newTitle === currentTitle) {
+            return resolve();
+          }
 
-        // Set a delay if finished syncing to prevent flickering when executing many syncs
-        if (currentTitle.indexOf(syncingTitle) > 0 && newTitle.indexOf(syncedTitle)) {
-          this.refreshInterfaceTimeout = this.$timeout(() => {
-            (browser.action || browser.browserAction).setIcon({ path: iconPath });
-            (browser.action || browser.browserAction).setTitle({ title: newTitle });
-          }, 350);
-          iconUpdated.resolve();
-          titleUpdated.resolve();
-        } else {
-          (browser.action || browser.browserAction)
-            .setIcon({ path: iconPath })
-            .then(iconUpdated.resolve, iconUpdated.reject);
-          (browser.action || browser.browserAction)
-            .setTitle({ title: newTitle })
-            .then(titleUpdated.resolve, titleUpdated.reject);
-        }
+          // Set a delay if finished syncing to prevent flickering when executing many syncs
+          if (currentTitle.indexOf(syncingTitle) > 0 && newTitle.indexOf(syncedTitle)) {
+            this.refreshInterfaceTimeout = this.$timeout(() => {
+              this.setActionIcon(actionApi, iconPath);
+              actionApi.setTitle({ title: newTitle }).catch((err) => {
+                this.logSvc.logWarning(`Failed to set action title: ${err?.message ?? err}`);
+              });
+            }, 350);
+            iconUpdated.resolve();
+            titleUpdated.resolve();
+          } else {
+            this.setActionIcon(actionApi, iconPath).then(iconUpdated.resolve);
+            actionApi.setTitle({ title: newTitle }).then(titleUpdated.resolve, (err) => {
+              this.logSvc.logWarning(`Failed to set action title: ${err?.message ?? err}`);
+              titleUpdated.resolve();
+            });
+          }
 
-        this.$q.all([iconUpdated.promise, titleUpdated.promise]).then(resolve).catch(reject);
-      });
+          this.$q.all([iconUpdated.promise, titleUpdated.promise]).then(() => resolve());
+        })
+        .catch((err) => {
+          this.logSvc.logWarning(`Failed to refresh native interface: ${err?.message ?? err}`);
+          resolve();
+        });
     });
+  }
+
+  setActionIcon(actionApi: typeof browser.action, iconPath: string): ng.IPromise<void> {
+    // Relative icon paths resolve against the service worker location in MV3, so load
+    // the image data explicitly via an absolute URL to work from any context
+    // (service worker, popup, background page). Falls back to path-based icon.
+    const loadIcon = Promise.resolve()
+      .then(() => fetch(browser.runtime.getURL(iconPath)))
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.blob();
+      })
+      .then((blob) => createImageBitmap(blob))
+      .then((bitmap) => {
+        // action.setIcon typing only accepts ImageData — render the bitmap into pixels.
+        // OffscreenCanvas is available in workers, document canvas in pages.
+        if (typeof OffscreenCanvas !== 'undefined') {
+          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(bitmap, 0, 0);
+            return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+          }
+        }
+        if (typeof document !== 'undefined') {
+          const canvas = document.createElement('canvas');
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(bitmap, 0, 0);
+            return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+          }
+        }
+        throw new Error('Cannot convert icon bitmap to ImageData');
+      })
+      // The polyfill typing only accepts plain image data structs, but the runtime also
+      // accepts a real ImageData instance — cast to satisfy the compiler
+      .then((imageData) => actionApi.setIcon({ imageData } as any))
+      .catch(() =>
+        actionApi.setIcon({ path: iconPath }).catch((err: Error) => {
+          this.logSvc.logWarning(`Failed to set action icon '${iconPath}': ${err?.message ?? err}`);
+        })
+      );
+    return this.$q.resolve(loadIcon).then(() => undefined);
   }
 
   sendMessage(message: Message): ng.IPromise<any> {

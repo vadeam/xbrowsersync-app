@@ -75,6 +75,10 @@ const $timeoutFactory = (): ng.ITimeoutService => {
       clearTimeout(promise.$$timeoutId);
       if (promise.$$reject) {
         promise.$$reject(new Error('$timeout cancelled'));
+        // The cancelled promise is often dropped by callers (same as AngularJS $timeout
+        // semantics) — mark the rejection as handled to avoid unhandled rejection noise
+        // while still notifying consumers that attached their own handlers
+        promise.catch(() => {});
       }
       return true;
     }

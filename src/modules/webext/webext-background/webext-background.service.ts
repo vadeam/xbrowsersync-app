@@ -204,7 +204,9 @@ export class WebExtBackgroundService {
       messageToDisplay = alert.message.replace(/<[^>]*>/g, '');
     }
     const options: Notifications.CreateNotificationOptions = {
-      iconUrl: `${Globals.PathToAssets}/notification.svg`,
+      // Use an absolute URL: relative asset paths resolve against the service
+      // worker location in MV3 and may fail to load from there
+      iconUrl: browser.runtime.getURL(`${Globals.PathToAssets}/notification.svg`),
       message: messageToDisplay,
       title: alert.title,
       type: 'basic'
