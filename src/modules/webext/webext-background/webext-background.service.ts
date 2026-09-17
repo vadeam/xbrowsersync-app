@@ -278,6 +278,39 @@ export class WebExtBackgroundService {
       );
   }
 
+  readyPromise: Promise<void> | null = null;
+
+  /**
+   * Ensures the background context is installed and initialised.
+   * MV3 service workers wake for events other than onInstalled/onStartup (e.g. alarms,
+   * runtime messages) without those events firing, so readiness must be ensured idempotently
+   * on every entry point instead of relying on a one-time startup flag. Concurrent callers
+   * share a single in-flight promise; a failure resets the guard so a later event can retry.
+   */
+  ensureReady(reason?: string): Promise<void> {
+    if (!this.readyPromise) {
+      // Use native promises so the guard works with both the Angular $q service
+      // and the service worker $q shim (both are thenable and assimilated here)
+      this.readyPromise = Promise.resolve()
+        .then(() => this.storeSvc.get([StoreKey.InstallBackup, StoreKey.SyncInfo]))
+        .then((storeContent: any) => {
+          const alreadyInstalled = !!storeContent?.[StoreKey.InstallBackup] || !!storeContent?.[StoreKey.SyncInfo];
+          if (reason === 'install' || !alreadyInstalled) {
+            return this.installExtension();
+          }
+          return undefined;
+        })
+        .catch((err) => {
+          this.readyPromise = null;
+          throw err;
+        })
+        .then(() => {
+          this.init();
+        });
+    }
+    return this.readyPromise;
+  }
+
   installExtension(): ng.IPromise<void> {
     // Initialise data storage
     return (

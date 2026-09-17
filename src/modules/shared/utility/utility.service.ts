@@ -230,8 +230,15 @@ export class UtilityService {
 
   parseUrl(url: string): Url {
     const searchObject: any = {};
-    const parser = document.createElement('a');
-    parser.href = url;
+    // `document` is unavailable in service worker context — use the URL API instead
+    const parser =
+      typeof document !== 'undefined'
+        ? (() => {
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            return anchor;
+          })()
+        : new URL(url);
     const queries = parser.search.replace(/^\?/, '').split('&');
 
     let split;

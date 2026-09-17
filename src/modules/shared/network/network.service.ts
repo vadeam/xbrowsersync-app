@@ -44,12 +44,14 @@ export class NetworkService {
   }
 
   isNetworkConnected(): boolean {
-    return (window as any).Connection &&
-      (window.navigator as any).connection &&
-      (window.navigator as any).connection.type
-      ? (window.navigator as any).connection.type !== (window as any).Connection.NONE &&
-          (window.navigator as any).connection.type !== (window as any).Connection.UNKNOWN
-      : window.navigator.onLine;
+    // `window` is unavailable in service worker context — fall back to the worker navigator
+    const hasWindow = typeof window !== 'undefined';
+    // eslint-disable-next-line no-undef, no-restricted-globals
+    const nav: Navigator | undefined = hasWindow ? window.navigator : self.navigator;
+    const Connection = hasWindow ? (window as any).Connection : undefined;
+    return Connection && (nav as any)?.connection && (nav as any).connection.type
+      ? (nav as any).connection.type !== Connection.NONE && (nav as any).connection.type !== Connection.UNKNOWN
+      : (nav?.onLine ?? true);
   }
 
   isNetworkConnectionError(err: Error): boolean {

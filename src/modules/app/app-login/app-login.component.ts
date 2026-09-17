@@ -192,7 +192,7 @@ export class AppLoginComponent implements OnInit {
                 }
                 return this.utilitySvc
                   .getApiService()
-                  .then((apiSvc) => apiSvc.getBookmarksLastUpdated(true))
+                  .then((freshApiSvc) => freshApiSvc.getBookmarksLastUpdated(true))
                   .then((res) => this.storeSvc.set(StoreKey.LastUpdated, res.lastUpdated))
                   .then(() => this.platformSvc.queueSync(syncData));
               })
