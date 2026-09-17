@@ -7,6 +7,7 @@ import { BackupRestoreService } from '../../shared/backup-restore/backup-restore
 import { BookmarkHelperService } from '../../shared/bookmark/bookmark-helper/bookmark-helper.service';
 import {
   AmbiguousSyncRequestError,
+  BaseError,
   FailedDownloadFileError,
   HttpRequestAbortedError
 } from '../../shared/errors/errors';
@@ -444,8 +445,27 @@ export class WebExtBackgroundService {
       }
       action.then(resolve).catch(reject);
     }).catch((err) => {
-      // Set message to error class name so sender can rehydrate the error on receipt
-      err.message = err.constructor.name;
+      // Log the full error locally first: only err.message survives runtime.sendMessage,
+      // so without this the original stack would be lost for diagnosis
+      try {
+        this.$q
+          .resolve()
+          .then(() => this.logSvc.logError(err))
+          .catch(() => {
+            // Logging must never break error propagation
+          });
+      } catch {
+        // Logging must never break error propagation
+      }
+      // Set message to error class name so sender can rehydrate the error on receipt.
+      // For unknown (non-xbs) errors keep the original message as details.
+      if (err && typeof err === 'object') {
+        const originalMessage = (err as Error).message ?? '';
+        (err as Error).message =
+          err instanceof BaseError
+            ? err.constructor.name
+            : `${(err as Error).constructor?.name ?? 'Error'}${originalMessage ? `: ${originalMessage}` : ''}`;
+      }
       throw err;
     });
   }
