@@ -252,7 +252,12 @@ export class BookmarkSyncProviderService implements SyncProvider {
 
     // Bookmarks will be provided if this is a restore, if so update native bookmarks and return
     if (sync.bookmarks) {
-      return this.populateNativeBookmarks(sync.bookmarks).then(() => processResult);
+      // Disable event listeners so bulk writes are not synced back as changes
+      return this.platformSvc
+        .disableNativeEventListeners()
+        .then(() => this.populateNativeBookmarks(sync.bookmarks))
+        .finally(() => this.platformSvc.enableNativeEventListeners())
+        .then(() => processResult);
     }
 
     return (
@@ -388,10 +393,12 @@ export class BookmarkSyncProviderService implements SyncProvider {
                         processResult.data = upgradedBookmarks;
                         processResult.updateRemote = true;
 
-                        // Update browser bookmarks
-                        return this.populateNativeBookmarks(upgradedBookmarks).then(() =>
-                          this.bookmarkSvc.buildIdMappings(upgradedBookmarks)
-                        );
+                        // Update browser bookmarks (without syncing the writes back)
+                        return this.platformSvc
+                          .disableNativeEventListeners()
+                          .then(() => this.populateNativeBookmarks(upgradedBookmarks))
+                          .then(() => this.bookmarkSvc.buildIdMappings(upgradedBookmarks))
+                          .finally(() => this.platformSvc.enableNativeEventListeners());
                       });
                   });
               })
