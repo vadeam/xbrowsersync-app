@@ -1,3 +1,19 @@
+## v1.9.0
+
+### Manifest V3 migration (Chromium/Firefox)
+
+- Migrated web extensions from Manifest V2 to Manifest V3: background now runs
+  in a service worker (Chromium) / MV3 background scripts (Firefox) with a manual
+  DI container instead of the AngularJS background page (no offscreen document)
+- Background state hardened for ephemeral workers: idempotent init on every wake,
+  persisted sync queue with resume, native bookmark listeners registered
+  synchronously at startup, timer-free native event processing
+- Native bookmark containers resolved without hardcoded ids (fresh profiles use
+  large ids), bulk populates no longer feed self-events back into synced data
+- Action icon/title updates and notifications fixed for service worker context
+  (explicit image data, relative raster notification icon)
+- Fixed background error diagnostics (real messages survive messaging)
+
 ## v1.6.0
 
 ### General improvements
